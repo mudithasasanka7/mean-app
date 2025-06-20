@@ -4,37 +4,29 @@ trigger:
       - main
 
 pool:
-  vmImage: 'ubuntu-latest'
+  vmImage: ubuntu-latest
+
+variables:
+  sshConnection: 'azure-vm-ssh'
 
 steps:
-- task: UseNode@1
-  inputs:
-    version: '18.x'
-
-- script: |
-    echo "Cloning repo to temp directory"
-    mkdir temp && cd temp
-    git clone https://github.com/mudithasasanka7/Mean-Crud-Backend.git .
-  displayName: 'Clone Repo'
-
 - task: CopyFilesOverSSH@0
   inputs:
-    sshEndpoint: 'AzureVMConnection'
-    sourceFolder: '$(System.DefaultWorkingDirectory)/temp'
+    sshEndpoint: $(sshConnection)
+    sourceFolder: '.'
     contents: '**'
-    targetFolder: '/home/azureuser/mean-app'
+    targetFolder: '/home/ubuntu/mean-app'
     overwrite: true
-  displayName: 'Copy files to Azure VM'
 
 - task: SSH@0
   inputs:
-    sshEndpoint: 'AzureVMConnection'
-    script: |
-      cd /home/azureuser/mean-app
-      echo "Installing dependencies"
-      cd backend && npm install
+    sshEndpoint: $(sshConnection)
+    runOptions: 'commands'
+    commands: |
+      cd /home/ubuntu/mean-app
+      npm install --prefix backend
+      npm install --prefix frontend
+      npm run build --prefix frontend
       pm2 stop all || true
-      pm2 start index.js --name backend --watch --env production
-      cd ../frontend && npm install
-      nohup npm run dev -- --port 5173 &
-    displayName: 'Install & Start App on VM'
+      pm2 start backend/server.js --name backend --watch
+      sudo cp -r frontend/dist/* /var/www/html
