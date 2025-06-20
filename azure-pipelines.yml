@@ -3,30 +3,63 @@ trigger:
     include:
       - main
 
-pool:
-  vmImage: ubuntu-latest
-
 variables:
-  sshConnection: 'azure-vm-ssh'
+  - group: env-secrets
 
-steps:
-- task: CopyFilesOverSSH@0
-  inputs:
-    sshEndpoint: $(sshConnection)
-    sourceFolder: '.'
-    contents: '**'
-    targetFolder: '/home/ubuntu/mean-app'
-    overwrite: true
+jobs:
+- job: BuildAndDeploy
+  displayName: 'Build and Deploy MEAN App'
+  pool:
+    vmImage: 'ubuntu-latest'
 
-- task: SSH@0
-  inputs:
-    sshEndpoint: $(sshConnection)
-    runOptions: 'commands'
-    commands: |
-      cd /home/ubuntu/mean-app
-      npm install --prefix backend
-      npm install --prefix frontend
-      npm run build --prefix frontend
-      pm2 stop all || true
-      pm2 start backend/server.js --name backend --watch
-      sudo cp -r frontend/dist/* /var/www/html
+  steps:
+  - task: NodeTool@0
+    inputs:
+      versionSpec: '18.x'
+    displayName: 'Install Node.js'
+
+  - script: |
+      echo "$(FRONTEND_ENV)" > frontend/.env
+      echo "$(BACKEND_ENV)" > backend/.env
+    displayName: 'Create .env files'
+
+  - script: |
+      cd frontend
+      npm install
+      npm run build
+    displayName: 'Build Frontend'
+
+  - script: |
+      cd backend
+      npm install
+    displayName: 'Install Backend Dependencies'
+
+  - task: InstallSSHKey@0
+    inputs:
+      knownHostsEntry: '$(SSH_HOST)'
+      sshPublicKey: ''
+      sshKey: '$(SSH_PRIVATE_KEY)'
+      sshPassphrase: ''
+    displayName: 'Install SSH Key'
+
+  - script: |
+      ssh -o StrictHostKeyChecking=no $(SSH_USER)@$(SSH_HOST) << 'EOF'
+        rm -rf ~/mean-app
+        mkdir -p ~/mean-app
+      EOF
+
+      scp -r frontend/dist $(SSH_USER)@$(SSH_HOST):~/mean-app/
+      scp -r backend $(SSH_USER)@$(SSH_HOST):~/mean-app/
+  - script: |
+      ssh $(SSH_USER)@$(SSH_HOST) << 'EOF'
+        cd ~/mean-app/backend
+        echo "$(BACKEND_ENV)" > .env
+        npm install
+        pm2 stop backend || true
+        pm2 start index.js --name backend
+
+        sudo rm -rf /var/www/html/*
+        sudo cp -r ~/mean-app/dist/* /var/www/html/
+        sudo systemctl restart nginx
+      EOF
+    displayName: 'Deploy to Azure VM'
