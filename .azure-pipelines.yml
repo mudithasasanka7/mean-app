@@ -1,0 +1,43 @@
+trigger:
+  - main
+
+variables:
+  backend_folder: 'backend'
+  frontend_folder: 'frontend'
+
+stages:
+- stage: Deploy
+  jobs:
+  - job: DeployApp
+    pool:
+      vmImage: 'ubuntu-latest'
+
+    steps:
+    - checkout: self
+
+    - task: CopyFilesOverSSH@0
+      inputs:
+        sshEndpoint: 'AzureSSHConnection'
+        sourceFolder: '$(System.DefaultWorkingDirectory)'
+        contents: '**'
+        targetFolder: '/home/ubuntu/mean-app-temp'
+
+    - task: SSH@0
+      inputs:
+        sshEndpoint: 'AzureSSHConnection'
+        script: |
+          rm -rf /home/ubuntu/mean-app-old
+          mv /home/ubuntu/mean-app /home/ubuntu/mean-app-old || true
+          mv /home/ubuntu/mean-app-temp /home/ubuntu/mean-app
+
+          cd /home/ubuntu/mean-app/backend
+          echo "${{ secrets.BACKEND_ENV }}" > .env
+          npm install
+          pm2 restart backend || pm2 start index.js --name backend
+
+          cd /home/ubuntu/mean-app/frontend
+          echo "${{ secrets.FRONTEND_ENV }}" > .env
+          npm install
+          pm2 restart frontend || pm2 start "npm run dev -- --port 5173" --name frontend
+
+          sudo systemctl restart nginx
