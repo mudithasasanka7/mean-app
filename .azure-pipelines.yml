@@ -2,8 +2,11 @@ trigger:
   - main
 
 variables:
-  backend_folder: 'backend'
-  frontend_folder: 'frontend'
+- group: mean-app-secrets
+- name: backend_folder
+  value: 'backend'
+- name: frontend_folder
+  value: 'frontend'
 
 stages:
 - stage: Deploy
@@ -15,6 +18,7 @@ stages:
     steps:
     - checkout: self
 
+    # Copy project files to VM
     - task: CopyFilesOverSSH@0
       inputs:
         sshEndpoint: 'AzureSSHConnection'
@@ -22,6 +26,7 @@ stages:
         contents: '**'
         targetFolder: '/home/ubuntu/mean-app-temp'
 
+    # SSH into VM and run deployment script
     - task: SSH@0
       inputs:
         sshEndpoint: 'AzureSSHConnection'
@@ -30,13 +35,13 @@ stages:
           mv /home/ubuntu/mean-app /home/ubuntu/mean-app-old || true
           mv /home/ubuntu/mean-app-temp /home/ubuntu/mean-app
 
-          cd /home/ubuntu/mean-app/backend
-          echo "${{ secrets.BACKEND_ENV }}" > .env
+          cd /home/ubuntu/mean-app/$(backend_folder)
+          echo "$(BACKEND_ENV)" > .env
           npm install
           pm2 restart backend || pm2 start index.js --name backend
 
-          cd /home/ubuntu/mean-app/frontend
-          echo "${{ secrets.FRONTEND_ENV }}" > .env
+          cd /home/ubuntu/mean-app/$(frontend_folder)
+          echo "$(FRONTEND_ENV)" > .env
           npm install
           pm2 restart frontend || pm2 start "npm run dev -- --port 5173" --name frontend
 
